@@ -1,0 +1,17 @@
+name: app_pusher
+version: 1.0.0
+
+authors:
+  - syalon
+  
+targets:
+  app_pusher:
+    main: src/app_pusher.cr
+
+dependencies:
+  bitshares-crystal:
+    github: syalon/bitshares-crystal
+
+crystal: 1.2.0
+
+license: MIT
