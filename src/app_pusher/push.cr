@@ -59,16 +59,22 @@ module AppPusher
                       else
                         "[Exception]\n#{e.detail_message}"
                       end
-      add_task(target_chat_id: target_chat_id, message: error_message)
+      add_task(target_chat_id_or_list: target_chat_id, message: error_message)
     end
 
     # 推送：普通信息
-    def add_task(target_chat_id : String, message : String, format : TextFormat = :text)
-      @pending_queue << MsgItem.new(chat_id: target_chat_id, msg: message, fmt: format)
+    def add_task(target_chat_id_or_list : String | Array(String), message : String, format : TextFormat = :text)
+      if target_chat_id_or_list.is_a?(String)
+        @pending_queue << MsgItem.new(chat_id: target_chat_id_or_list, msg: message, fmt: format)
+      else
+        target_chat_id_or_list.each { |target_chat_id| @pending_queue << MsgItem.new(chat_id: target_chat_id, msg: message, fmt: format) }
+      end
     end
 
     private def run
       loop do
+        # => TODO:处理电报频率限制
+        # => https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this
         if item = @pending_queue.shift?
           if sendMessage(item.chat_id, item.msg, item.fmt)
             @statistics.success += 1

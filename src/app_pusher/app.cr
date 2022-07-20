@@ -223,6 +223,9 @@ module AppPusher
       result
     }
 
+    # 对象订阅
+    getter(subscriber : ObjectSubscriber) { ObjectSubscriber.new(client) }
+
     def initialize(@config)
       @push_service = TelegramPushService.new(@config.telegram_bot_token)
       @app_start_time = Time.utc.to_unix
@@ -243,7 +246,7 @@ module AppPusher
     end
 
     # => TODO: 根据需求优化 如果大批量推送后续考虑并行化处理
-    private def push_to_user(title : String, msg_or_msgarray : String | Array(String), target_chat_id : String, format : TelegramPushService::TextFormat = :html)
+    def push_to_user(title : String, msg_or_msgarray : String | Array(String), target_chat_id : String | Array(String), format : TelegramPushService::TextFormat = :html)
       final_msg = String.build do |io|
         io << title
         io << "\n"
@@ -392,8 +395,13 @@ module AppPusher
       init_data_once
       init_all_credit_deal_object_once(init_block_time.to_u32)
 
+      # => 初始化订阅
+      subscriber.start
+
       # => 订阅新区块
       client.loop_new_block(0.2) do |new_block_number|
+        raise BitShares::SocketClosed.new("set_subscribe_callback trigger websocket closed.") if subscriber.disconnected
+
         @tick_n += 1
 
         log_for_main { "new block: #{new_block_number}" }
@@ -481,24 +489,24 @@ module AppPusher
       end
     end
 
-    private def try_push?(target_account_id, feature_key : String)
+    def try_push?(target_account_id, feature_key : String)
       # => 尚未连接社交媒体
       connection_data = @all_connection_hash[target_account_id]?
       if connection_data.nil?
-        Log.debug { "User #{account_id_to_name(target_account_id)} has not yet connected to the telegram." }
+        Log.debug { "user #{account_id_to_name(target_account_id)} has not yet connected to the telegram." }
         return
       end
 
       # => 社交媒体未经过认证
       if !connection_data.is_verified
-        Log.debug { "User #{account_id_to_name(target_account_id)}'s telegram account is not verified." }
+        Log.debug { "user #{account_id_to_name(target_account_id)}'s telegram account is not verified." }
         return
       end
 
       # => 提醒未配置
       reminder_item = @all_reminder_settings[target_account_id]?
       if reminder_item.nil?
-        Log.debug { "User #{account_id_to_name(target_account_id)} has not enabled reminders." }
+        Log.debug { "user #{account_id_to_name(target_account_id)} has not enabled reminders." }
         return
       end
 
@@ -510,7 +518,7 @@ module AppPusher
 
       # => 通知未开启
       if !reminder_item.is_feature_enabled?(feature_key)
-        Log.debug { "User #{account_id_to_name(target_account_id)} has not enabled the reminder of the #{feature_key} feature." }
+        Log.debug { "user #{account_id_to_name(target_account_id)} has not enabled the reminder of the #{feature_key} feature." }
         return
       end
 
@@ -523,21 +531,19 @@ module AppPusher
       opdata = op.last
       case opcode
       when BitShares::Blockchain::Operations::Transfer.value
-        handle_opdata_transfer(transactions, hist, opdata, block_num, block_timestamp)
+        on_op_transfer(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Fill_order.value
-        handle_opdata_fill_order(transactions, hist, opdata, block_num, block_timestamp)
+        on_op_fill_order(transactions, hist, opdata, result, block_num, block_timestamp)
+      when BitShares::Blockchain::Operations::Proposal_create.value
+        on_op_proposal_create(transactions, hist, opdata, result, block_num, block_timestamp)
+      when BitShares::Blockchain::Operations::Proposal_update.value
+        # on_op_proposal_update(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Custom.value
-        handle_opdata_custom(transactions, hist, opdata, block_num, block_timestamp)
+        on_op_custom(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Credit_offer_accept.value # => P2P抵押贷 借贷、还款、逾期
-        # => extendable_operation_result
-        # => [5, {"impacted_accounts" => ["1.2.25721"], "new_objects" => ["1.22.46"]}]
-        if new_deal_id = result.dig?(1, "new_objects", 0).try(&.as_s?)
-          handle_opdata_credit_offer_accept(transactions, hist, opdata, block_num, block_timestamp, new_deal_id)
-        else
-          Log.warn { "invalid operation_result: #{result}" }
-        end
+        on_op_credit_offer_accept(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Credit_deal_repay.value
-        handle_opdata_credit_deal_repay(transactions, hist, opdata, block_num, block_timestamp)
+        on_op_credit_deal_repay(transactions, hist, opdata, result, block_num, block_timestamp)
       end
     end
 
@@ -595,7 +601,7 @@ module AppPusher
     end
 
     # => TODO: lang
-    private def handle_opdata_transfer(transactions, hist, opdata, block_num, block_timestamp)
+    private def on_op_transfer(transactions, hist, opdata, result, block_num, block_timestamp)
       to_id = opdata["to"].as_s
 
       try_push?(to_id, FeatureKeys::Transfer) do |chat_id, lang|
@@ -617,7 +623,7 @@ module AppPusher
     end
 
     # => TODO: lang
-    private def handle_opdata_fill_order(transactions, hist, opdata, block_num, block_timestamp)
+    private def on_op_fill_order(transactions, hist, opdata, result, block_num, block_timestamp)
       # => 仅推送 maker 成交记录，taker 主动吃单行为不推送。
       return if !opdata["is_maker"].is_true?
 
@@ -645,6 +651,86 @@ module AppPusher
       end
     end
 
+    struct BulkPush
+      @app : App
+      @feature_key : String
+      @mark_account = {} of String => Bool
+
+      def initialize(@app, @feature_key)
+      end
+
+      def <<(target_account_id : String)
+        @mark_account[target_account_id] = true
+      end
+
+      def submit
+        return if @mark_account.empty?
+
+        chat_id_lang_hash = {} of String => String
+
+        @mark_account.each do |target_account_id, _|
+          @app.try_push?(target_account_id, @feature_key) { |chat_id, lang| chat_id_lang_hash[chat_id] = lang }
+        end
+
+        lang_hash = {} of String => Tuple(String, String)
+
+        chat_id_lang_hash.each do |chat_id, lang|
+          lang_hash[lang] = yield lang if !lang_hash.has_key?(lang)
+
+          @app.push_to_user(*lang_hash[lang], chat_id)
+        end
+      end
+    end
+
+    # => TODO: lang
+    private def on_op_proposal_create(transactions, hist, opdata, result, block_num, block_timestamp)
+      new_proposal_id = result.dig?(1).try(&.as_s?)
+      if new_proposal_id.nil?
+        Log.warn { "invalid operation_result: #{result}" }
+        return
+      end
+
+      new_proposal = client.query_one_object(new_proposal_id)
+
+      # => REMARK: 提案创建后立即批准完成了
+      return if new_proposal.nil?
+
+      proposer_id = new_proposal["proposer"].as_s
+
+      { {"required_owner_approvals", "owner"}, {"required_active_approvals", "active"} }.each do |tuple|
+        new_proposal[tuple.first].as_a.each do |required_account_id|
+          required_account = subscriber.query_and_subscribe(required_account_id.as_s)
+          proposer_account = subscriber.query_and_subscribe(proposer_id)
+
+          bulk_push = BulkPush.new(self, FeatureKeys::Proposal_create)
+
+          # => 推送给 required_account 账号
+          bulk_push << required_account_id.as_s
+
+          # => 推送给所有参与多签的账号
+          required_account.dig(tuple.last, "account_auths").as_a.each { |item| bulk_push << item[0].as_s }
+
+          # => 提交
+          bulk_push.submit do |lang|
+            link_required = fmt_link_account(required_account["name"].as_s)
+            link_proposer = fmt_link_account(proposer_account["name"].as_s)
+            link_proposal_id = fmt_link_oid(new_proposal_id)
+
+            txid = calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16)
+            link_tx = fmt_link_txid(txid)
+
+            # => 返回推送文案
+            {"【新的提案】", "#{link_required} 有新的提案 #{link_proposal_id}，请注意查看。创建者：#{link_proposer}。\n\n#{link_tx}"}
+          end
+        end
+      end
+    end
+
+    # => TODO: lang
+    private def on_op_proposal_update(transactions, hist, opdata, result, block_num, block_timestamp)
+      # => TOOD:ing
+    end
+
     # => TODO: lang
     private def handle_credit_deal_repayment_date_reminder(deal_id, deal_object, seconds)
       try_push?(deal_object.borrower, FeatureKeys::Credit_deal_repay_time) do |chat_id, lang|
@@ -663,7 +749,15 @@ module AppPusher
     end
 
     # => TODO: lang 这3个op本身是否有提醒？
-    private def handle_opdata_credit_offer_accept(transactions, hist, opdata, block_num, block_timestamp, new_deal_id)
+    private def on_op_credit_offer_accept(transactions, hist, opdata, result, block_num, block_timestamp)
+      # => extendable_operation_result
+      # => [5, {"impacted_accounts" => ["1.2.25721"], "new_objects" => ["1.22.46"]}]
+      new_deal_id = result.dig?(1, "new_objects", 0).try(&.as_s?)
+      if new_deal_id.nil?
+        Log.warn { "invalid operation_result: #{result}" }
+        return
+      end
+
       if new_deal_object = client.query_one_object(new_deal_id) # => query skip cache
         # => 添加到本地监控列表
         update_credit_deal_object_cache(new_deal_object, block_timestamp)
@@ -675,7 +769,7 @@ module AppPusher
     end
 
     # => TODO: lang 这3个op本身是否有提醒？
-    private def handle_opdata_credit_deal_repay(transactions, hist, opdata, block_num, block_timestamp)
+    private def on_op_credit_deal_repay(transactions, hist, opdata, result, block_num, block_timestamp)
       deal_id = opdata["deal_id"].as_s
 
       # => 更新 or 删除
@@ -687,7 +781,7 @@ module AppPusher
     end
 
     # => 处理自定义数据，主要目的是在这里面处理用户配置动态更新，避免去订阅数据。
-    private def handle_opdata_custom(transactions, hist, opdata, block_num, block_timestamp)
+    private def on_op_custom(transactions, hist, opdata, result, block_num, block_timestamp)
       bin = opdata["data"].as_s.hexbytes
       return if bin.size == 0
 
