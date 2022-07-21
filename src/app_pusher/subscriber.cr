@@ -28,16 +28,35 @@ module AppPusher
       @client.call_db("set_subscribe_callback", [false], callback: set_subscribe_callback)
 
       # => 默认订阅对象
-      query_and_subscribe(DYNAMIC_GLOBAL_PROPERTY_ID)
+      query_and_subscribe?(DYNAMIC_GLOBAL_PROPERTY_ID)
     end
 
-    def query_and_subscribe(oid : String)
+    # 从缓存删除
+    def delete_object(oid)
+      @subscribe_objects_hash.delete(oid)
+    end
+
+    # 直接从缓存获取对象
+    def get_object?(oid : String)
+      return @subscribe_objects_hash[oid]?
+    end
+
+    def get_object!(oid : String)
+      get_object?(oid).not_nil!
+    end
+
+    # 查询并订阅对象
+    def query_and_subscribe?(oid : String)
       if obj = @subscribe_objects_hash[oid]?
         return obj
       else
         @client.call_db("get_objects", [{oid}, true]).as_a.each { |obj| @subscribe_objects_hash[obj["id"].as_s] = obj }
-        return @subscribe_objects_hash[oid]
+        return @subscribe_objects_hash[oid]?
       end
+    end
+
+    def query_and_subscribe!(oid : String)
+      query_and_subscribe?(oid).not_nil!
     end
 
     private def handle_chain_notify(data : JSON::Any?)

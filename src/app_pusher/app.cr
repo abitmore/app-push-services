@@ -177,6 +177,7 @@ module AppPusher
     @push_mark_fill_order = Hash(String, Bool).new                               # => 推送标记: 同一个 order id 在同一个区块里的 fill_order 不重复推送 KEY: order_id
     @monitor_all_credit_deal_object = Hash(String, SRuntimeCreditDealObject).new # => 监控：所有P2P借贷对象 KEY: deal id
     @cache_current_block_txid = Hash(UInt16, String).new                         # => 缓存：当前最新区块的 txid，下个区块会清除。
+    @trace_deleted_ids = Set(String).new                                         # => 追踪需要删除的对象 由于订阅大部分API不支持对象删除，故定期查询。
 
     # 获取 client 实例
     getter(client : BitShares::Client) { BitShares::Client.new(BitShares::Config.new.tap { |cfg| cfg.api_nodes = @config.api_node }) }
@@ -320,6 +321,23 @@ module AppPusher
       }
     end
 
+    # => 计划任务：定期删除链上已经不存在的对象。
+    private def trace_deleted_objects
+      removed_ids = [] of String
+
+      list = @trace_deleted_ids.to_a
+      client.query_objects(list).tap { |result| list.each { |oid| removed_ids << oid if !result.has_key?(oid) } }
+
+      # => 清理追踪列表和缓存
+      if !removed_ids.empty?
+        Log.debug { "clean removed objects: #{removed_ids}" }
+        removed_ids.each do |oid|
+          @trace_deleted_ids.delete(oid)
+          subscriber.delete_object(oid)
+        end
+      end
+    end
+
     private def format_running_time
       diff_seconds = Time.utc.to_unix - @app_start_time
 
@@ -388,6 +406,9 @@ module AppPusher
       start_ts = Time.utc.to_unix
       limit_load_reminder_default_value = binding_limit_call(600, &->load_reminder_default_value)
       limit_print_app_status = binding_limit_call(60, start_ts, &->print_app_status)
+      limit_trace_deleted_objects = binding_limit_call(300, start_ts, &->trace_deleted_objects)
+
+      # => call
       limit_load_reminder_default_value.call(start_ts)
 
       # => 初始化所有数据
@@ -425,6 +446,7 @@ module AppPusher
         now_ts = Time.utc.to_unix
         limit_load_reminder_default_value.call(now_ts)
         limit_print_app_status.call(now_ts)
+        limit_trace_deleted_objects.call(now_ts)
       end
     end
 
@@ -493,7 +515,7 @@ module AppPusher
       # => 尚未连接社交媒体
       connection_data = @all_connection_hash[target_account_id]?
       if connection_data.nil?
-        Log.debug { "user #{account_id_to_name(target_account_id)} has not yet connected to the telegram." }
+        # Log.debug { "user #{account_id_to_name(target_account_id)} has not yet connected to the telegram." }
         return
       end
 
@@ -512,7 +534,7 @@ module AppPusher
 
       # => 由其他推送机器人处理
       if reminder_item.provider != @push_service.bot_username
-        Log.debug { "Reminders for #{account_id_to_name(target_account_id)} are handled by the #{reminder_item.provider} bot." }
+        Log.debug { "reminders for #{account_id_to_name(target_account_id)} are handled by the #{reminder_item.provider} bot." }
         return
       end
 
@@ -537,7 +559,7 @@ module AppPusher
       when BitShares::Blockchain::Operations::Proposal_create.value
         on_op_proposal_create(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Proposal_update.value
-        # on_op_proposal_update(transactions, hist, opdata, result, block_num, block_timestamp)
+        on_op_proposal_update(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Custom.value
         on_op_custom(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Credit_offer_accept.value # => P2P抵押贷 借贷、还款、逾期
@@ -690,17 +712,21 @@ module AppPusher
         return
       end
 
-      new_proposal = client.query_one_object(new_proposal_id)
+      # => 查询并订阅提案
+      new_proposal = subscriber.query_and_subscribe?(new_proposal_id)
 
       # => REMARK: 提案创建后立即批准完成了
       return if new_proposal.nil?
+
+      # => 添加到监控列表
+      @trace_deleted_ids.add(new_proposal_id)
 
       proposer_id = new_proposal["proposer"].as_s
 
       { {"required_owner_approvals", "owner"}, {"required_active_approvals", "active"} }.each do |tuple|
         new_proposal[tuple.first].as_a.each do |required_account_id|
-          required_account = subscriber.query_and_subscribe(required_account_id.as_s)
-          proposer_account = subscriber.query_and_subscribe(proposer_id)
+          required_account = subscriber.query_and_subscribe!(required_account_id.as_s)
+          proposer_account = subscriber.query_and_subscribe!(proposer_id)
 
           bulk_push = BulkPush.new(self, FeatureKeys::Proposal_create)
 
@@ -728,7 +754,66 @@ module AppPusher
 
     # => TODO: lang
     private def on_op_proposal_update(transactions, hist, opdata, result, block_num, block_timestamp)
-      # => TOOD:ing
+      proposal_id = opdata["proposal"].as_s
+
+      proposal = subscriber.query_and_subscribe?(proposal_id)
+
+      # => REMARK: 用户批准后提案完成删除了 并且 本地缓存不存在（由于重启等原因 proposal_create 时缓存的数据丢失了。）
+      if proposal.nil?
+        Log.debug { "proposal missing ##{proposal_id}。" }
+        return
+      end
+
+      # => 添加到监控列表
+      @trace_deleted_ids.add(proposal_id)
+
+      { {"required_owner_approvals", "owner"}, {"required_active_approvals", "active"} }.each do |tuple|
+        proposal[tuple.first].as_a.each do |required_account_id|
+          required_account = subscriber.query_and_subscribe!(required_account_id.as_s)
+
+          bulk_push = BulkPush.new(self, FeatureKeys::Proposal_update)
+
+          # => 批准提案不用推送给 required_account 账号
+          # bulk_push << required_account_id.as_s
+
+          # => 推送给所有参与多签的账号
+          required_account.dig(tuple.last, "account_auths").as_a.each { |item| bulk_push << item[0].as_s }
+
+          # => 提交
+          bulk_push.submit do |lang|
+            link_required = fmt_link_account(required_account["name"].as_s)
+            link_proposal_id = fmt_link_oid(proposal_id)
+            link_fee_paying_account = fmt_link_account(account_id_to_name(opdata["fee_paying_account"].as_s))
+
+            txid = calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16)
+            link_tx = fmt_link_txid(txid)
+
+            # => 两种文案
+            # => 1、单个多签用户批准了提案。
+            #       alice 批准了 xxx 的提案 #proposal_id，请注意查看。手续费账号：xxx。
+            # => 2、撤销批准、或者 key 批准等其他情况。
+            #       xxx 的提案 #proposal_id 有更新，请注意查看。手续费账号：xxx。
+            owner_approvals_to_add = opdata["owner_approvals_to_add"].as_a
+            active_approvals_to_add = opdata["active_approvals_to_add"].as_a
+
+            message = if owner_approvals_to_add.size + active_approvals_to_add.size == 1
+                        approval_account_id = if !owner_approvals_to_add.empty?
+                                                owner_approvals_to_add[0].as_s
+                                              else
+                                                active_approvals_to_add[0].as_s
+                                              end
+                        link_approval_user = fmt_link_account(account_id_to_name(approval_account_id))
+
+                        "#{link_approval_user} 批准了 #{link_required} 的提案 #{link_proposal_id}，请注意查看。手续费账号：#{link_fee_paying_account}。\n\n#{link_tx}"
+                      else
+                        "#{link_required} 的提案 #{link_proposal_id} 有更新，请注意查看。手续费账号：#{link_fee_paying_account}。\n\n#{link_tx}"
+                      end
+
+            # => 返回推送文案
+            {"【更新提案】", message}
+          end
+        end
+      end
     end
 
     # => TODO: lang
