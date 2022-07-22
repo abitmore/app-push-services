@@ -3,5 +3,5 @@ module AppPusher
   # 大功能升级 - 修改主版本号
   # 小功能升级 - 修改副版本号
   # BUG等修复 - 修改末尾部分版本号
-  VERSION = "1.0.0721.0"
+  VERSION = "1.0.0722.0"
 end

@@ -622,58 +622,7 @@ module AppPusher
       return query_one_object(account_id)["name"].as_s
     end
 
-    # => TODO: lang
-    private def on_op_transfer(transactions, hist, opdata, result, block_num, block_timestamp)
-      to_id = opdata["to"].as_s
-
-      try_push?(to_id, FeatureKeys::Transfer) do |chat_id, lang|
-        from_id = opdata["from"].as_s
-
-        # => 生成推送消息
-        link_amount = fmt_asset_amount_item(opdata["amount"])
-        link_from = fmt_link_account(account_id_to_name(from_id))
-        link_to = fmt_link_account(account_id_to_name(to_id))
-
-        txid = calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16)
-        link_tx = fmt_link_txid(txid)
-
-        message = "#{link_from} 转账 #{link_amount} 给 #{link_to}。\n\n#{link_tx}"
-
-        # => 推送
-        push_to_user("【新的收款】", message, chat_id)
-      end
-    end
-
-    # => TODO: lang
-    private def on_op_fill_order(transactions, hist, opdata, result, block_num, block_timestamp)
-      # => 仅推送 maker 成交记录，taker 主动吃单行为不推送。
-      return if !opdata["is_maker"].is_true?
-
-      # => 同一个区块内 已经推送了则直接返回，不用重复推送。
-      order_id = opdata["order_id"].as_s
-      return if @push_mark_fill_order.has_key?(order_id)
-
-      # => 标记
-      @push_mark_fill_order[order_id] = true
-
-      account_id = opdata["account_id"].as_s
-
-      try_push?(account_id, FeatureKeys::Fill_order) do |chat_id, lang|
-        # => 生成推送消息
-        link_account = fmt_link_account(account_id_to_name(account_id))
-        link_order_id = fmt_link_oid(order_id)
-
-        txid = calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16)
-        link_tx = fmt_link_txid(txid)
-
-        message = "#{link_account} 的订单 #{link_order_id} 开始成交，请注意查看。\n\n#{link_tx}"
-
-        # => 推送
-        push_to_user("【订单成交】", message, chat_id)
-      end
-    end
-
-    struct BulkPush
+    private struct BulkPush
       @app : App
       @feature_key : String
       @mark_account = {} of String => Bool
@@ -704,7 +653,66 @@ module AppPusher
       end
     end
 
-    # => TODO: lang
+    private def on_op_transfer(transactions, hist, opdata, result, block_num, block_timestamp)
+      to_id = opdata["to"].as_s
+
+      try_push?(to_id, FeatureKeys::Transfer) do |chat_id, lang|
+        from_id = opdata["from"].as_s
+
+        # => 生成推送消息
+        link_amount = fmt_asset_amount_item(opdata["amount"])
+        link_from = fmt_link_account(account_id_to_name(from_id))
+        link_to = fmt_link_account(account_id_to_name(to_id))
+        link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
+
+        # => 格式：{from} 转账 {amount} 给 {to}。\n\n{txid}
+        message = Lang.format(lang, :transfer_value,
+          {
+            from:   link_from,
+            amount: link_amount,
+            to:     link_to,
+            txid:   link_txid,
+          }
+        )
+
+        # => 推送
+        push_to_user(Lang.text(lang, :transfer_title), message, chat_id)
+      end
+    end
+
+    private def on_op_fill_order(transactions, hist, opdata, result, block_num, block_timestamp)
+      # => 仅推送 maker 成交记录，taker 主动吃单行为不推送。
+      return if !opdata["is_maker"].is_true?
+
+      # => 同一个区块内 已经推送了则直接返回，不用重复推送。
+      order_id = opdata["order_id"].as_s
+      return if @push_mark_fill_order.has_key?(order_id)
+
+      # => 标记
+      @push_mark_fill_order[order_id] = true
+
+      account_id = opdata["account_id"].as_s
+
+      try_push?(account_id, FeatureKeys::Fill_order) do |chat_id, lang|
+        # => 生成推送消息
+        link_account = fmt_link_account(account_id_to_name(account_id))
+        link_order_id = fmt_link_oid(order_id)
+        link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
+
+        # => 格式：{account} 的订单 {order_id} 开始成交，请注意查看。\n\n{txid}
+        message = Lang.format(lang, :fill_order_value,
+          {
+            account:  link_account,
+            order_id: link_order_id,
+            txid:     link_txid,
+          }
+        )
+
+        # => 推送
+        push_to_user(Lang.text(lang, :fill_order_title), message, chat_id)
+      end
+    end
+
     private def on_op_proposal_create(transactions, hist, opdata, result, block_num, block_timestamp)
       new_proposal_id = result.dig?(1).try(&.as_s?)
       if new_proposal_id.nil?
@@ -741,18 +749,25 @@ module AppPusher
             link_required = fmt_link_account(required_account["name"].as_s)
             link_proposer = fmt_link_account(proposer_account["name"].as_s)
             link_proposal_id = fmt_link_oid(new_proposal_id)
+            link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
 
-            txid = calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16)
-            link_tx = fmt_link_txid(txid)
+            # => 格式：{required} 有新的提案 {proposal_id}，请注意查看。创建者：{proposer}。\n\n{txid}
+            message = Lang.format(lang, :proposal_create_value,
+              {
+                required:    link_required,
+                proposal_id: link_proposal_id,
+                proposer:    link_proposer,
+                txid:        link_txid,
+              }
+            )
 
             # => 返回推送文案
-            {"【新的提案】", "#{link_required} 有新的提案 #{link_proposal_id}，请注意查看。创建者：#{link_proposer}。\n\n#{link_tx}"}
+            {Lang.text(lang, :proposal_create_title), message}
           end
         end
       end
     end
 
-    # => TODO: lang
     private def on_op_proposal_update(transactions, hist, opdata, result, block_num, block_timestamp)
       proposal_id = opdata["proposal"].as_s
 
@@ -784,9 +799,7 @@ module AppPusher
             link_required = fmt_link_account(required_account["name"].as_s)
             link_proposal_id = fmt_link_oid(proposal_id)
             link_fee_paying_account = fmt_link_account(account_id_to_name(opdata["fee_paying_account"].as_s))
-
-            txid = calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16)
-            link_tx = fmt_link_txid(txid)
+            link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
 
             # => 两种文案
             # => 1、单个多签用户批准了提案。
@@ -804,19 +817,35 @@ module AppPusher
                                               end
                         link_approval_user = fmt_link_account(account_id_to_name(approval_account_id))
 
-                        "#{link_approval_user} 批准了 #{link_required} 的提案 #{link_proposal_id}，请注意查看。手续费账号：#{link_fee_paying_account}。\n\n#{link_tx}"
+                        # => 格式：{approval_user} 批准了 {required} 的提案 {proposal_id}，请注意查看。手续费账号：{fee_paying_account}。\n\n{txid}
+                        Lang.format(lang, :proposal_update_value01,
+                          {
+                            approval_user:      link_approval_user,
+                            required:           link_required,
+                            proposal_id:        link_proposal_id,
+                            fee_paying_account: link_fee_paying_account,
+                            txid:               link_txid,
+                          }
+                        )
                       else
-                        "#{link_required} 的提案 #{link_proposal_id} 有更新，请注意查看。手续费账号：#{link_fee_paying_account}。\n\n#{link_tx}"
+                        # => 格式：{required} 的提案 {proposal_id} 有更新，请注意查看。手续费账号：{fee_paying_account}。\n\n{txid}
+                        Lang.format(lang, :proposal_update_value02,
+                          {
+                            required:           link_required,
+                            proposal_id:        link_proposal_id,
+                            fee_paying_account: link_fee_paying_account,
+                            txid:               link_txid,
+                          }
+                        )
                       end
 
             # => 返回推送文案
-            {"【更新提案】", message}
+            {Lang.text(lang, :proposal_update_title), message}
           end
         end
       end
     end
 
-    # => TODO: lang
     private def handle_credit_deal_repayment_date_reminder(deal_id, deal_object, seconds)
       try_push?(deal_object.borrower, FeatureKeys::Credit_deal_repay_time) do |chat_id, lang|
         # => 生成推送消息
@@ -824,12 +853,18 @@ module AppPusher
         link_debt = fmt_asset_amount_item(deal_object.debt_amount, deal_object.debt_asset)
         link_deal_id = fmt_link_oid(deal_id)
 
-        # => 格式：
-        # => alice 的P2P借款 #1.22.333 10000 TEST 还有 7 小时逾期，请注意查看。
-        message = "#{link_borrower} 的P2P借款 #{link_debt} 还有 #{seconds // 3600} 小时逾期，请注意查看。#{link_deal_id}"
+        # => 格式：{borrower} 的P2P借款 {debt} 还有 {hours} 小时逾期，请注意查看。{deal_id}
+        message = Lang.format(lang, :credit_deal_repay_time_value,
+          {
+            borrower: link_borrower,
+            debt:     link_debt,
+            hours:    seconds // 3600,
+            deal_id:  link_deal_id,
+          }
+        )
 
         # => 推送
-        push_to_user("【P2P借款即将逾期】", message, chat_id)
+        push_to_user(Lang.text(lang, :credit_deal_repay_time_title), message, chat_id)
       end
     end
 
