@@ -1164,26 +1164,13 @@ module AppPusher
       return if !@monitor_all_credit_deal_object.empty?
 
       Log.info { "load all credit deal object." }
-      api_limit = 50 # => TODO:api limit ???
-      start_id = "1.22.0"
 
-      loop do
-        # => 查询数据
-        data_array = client.call_db("list_credit_deals", [api_limit, start_id]).as_a
+      api_limit = get_api_limit("api_limit_get_credit_offers")
 
-        # => 处理数据
-        data_array.each { |deal_object| update_credit_deal_object_cache(deal_object, init_block_time) }
+      data_array = query_with_limit(api_limit: api_limit) { |start_id| client.call_db("list_credit_deals", [api_limit, "1.22.#{start_id}"]).as_a }
 
-        # => 是否查询完成判断
-        if data_array.size < api_limit
-          # => no more data
-          break
-        else
-          # => 继续查询
-          last_id = data_array.last["id"].as_s.split(".").last.to_i
-          start_id = "1.22.#{last_id + 1}"
-        end
-      end
+      # => 处理数据
+      data_array.each { |deal_object| update_credit_deal_object_cache(deal_object, init_block_time) }
     end
 
     # 生成社交媒体绑定时候需要验证的 KEY 字段信息。
@@ -1195,18 +1182,45 @@ module AppPusher
       return BitShares::Utility.sha512_hex(digest_string)
     end
 
+    private def query_with_limit(api_limit) : Array(JSON::Any)
+      result = [] of JSON::Any
+
+      start_id = 0
+
+      loop do
+        # => 查询数据
+        data_array = yield start_id
+
+        # => 保存数据
+        data_array.each { |item| result << item }
+
+        # => 是否查询完成判断
+        if data_array.size < api_limit
+          # => no more data
+          break
+        else
+          # => 继续查询
+          last_id = data_array.last["id"].as_s.split(".").last.to_i
+          start_id = last_id + 1
+        end
+      end
+
+      return result
+    end
+
     private def query_storage_by_account(account_id : String)
-      # => TODO: 缺少 api 测试临时获取前 500 个对象
-      client.call_db("get_objects", [(0..500).map { |i| "7.0.#{i}" }]).as_a.select { |storage_item| storage_item && storage_item.raw && storage_item["account"].as_s == account_id }
+      return query_storage(account_id: account_id, catalog: nil)
     end
 
     private def query_storage_by_catalog(catalog : String)
-      # => TODO: 缺少 api 测试临时获取前 500 个对象
-      client.call_db("get_objects", [(0..500).map { |i| "7.0.#{i}" }]).as_a.select { |storage_item| storage_item && storage_item.raw && storage_item["catalog"].as_s == catalog }
+      return query_storage(account_id: nil, catalog: catalog)
     end
 
-    private def query_storage(account_id, catalog)
-      client.call_custom_operations("get_storage_info", [account_id, catalog]).as_a
+    private def query_storage(account_id : String?, catalog : String?)
+      api_limit = get_api_limit("api_limit_get_storage_info")
+
+      # get_storage_info: account_name_or_id, catalog, key, limit, start_id
+      return query_with_limit(api_limit: api_limit) { |start_id| client.call_custom_operations("get_storage_info", [account_id, catalog, nil, api_limit, "7.0.#{start_id}"]).as_a }
     end
 
     private def query_one_object(oid : String, skip_cache = false)
@@ -1216,6 +1230,10 @@ module AppPusher
                  client.cache.query_one_object(oid)
                end
       return result.not_nil!
+    end
+
+    private def get_api_limit(api_limit_name : String, default_value = 50_u32)
+      return client.application_options.try(&.dig?(api_limit_name).try(&.to_u32)) || default_value
     end
 
     # 异常处理
