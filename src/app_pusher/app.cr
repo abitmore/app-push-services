@@ -898,8 +898,50 @@ module AppPusher
       end
     end
 
-    # => TODO: lang 这3个op本身是否有提醒？
     private def on_op_credit_offer_accept(transactions, hist, opdata, result, block_num, block_timestamp)
+      # => 1、更新本地 credit deal 对象
+      _update_credit_deal_object_by_op_credit_offer_accept(result, block_timestamp)
+
+      # => 2、处理借款通知
+      # => extendable_operation_result
+      # => [5, {"impacted_accounts" => ["1.2.25721"], "new_objects" => ["1.22.46"]}]
+      offer_owner_account_id = result.dig?(1, "impacted_accounts", 0).try(&.as_s?)
+      if offer_owner_account_id.nil?
+        Log.warn { "invalid operation_result: #{result}" }
+        return
+      end
+
+      try_push?(offer_owner_account_id, FeatureKeys::Credit_offer_accept) do |chat_id, lang|
+        # => 生成推送消息
+        link_borrower = fmt_link_account(account_id_to_name(opdata["borrower"].as_s))
+        link_offer_id = fmt_link_oid(opdata["offer_id"].as_s)
+        link_borrow_amount = fmt_asset_amount_item(opdata["borrow_amount"])
+        link_collateral = fmt_asset_amount_item(opdata["collateral"])
+        link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
+
+        # => 格式：{borrower} 从P2P抵押贷 {offer_id} 借款 {amount}，抵押物 {collateral}。\n\n{txid}
+        message = Lang.format(lang, :credit_offer_accept_value,
+          {
+            borrower:   link_borrower,
+            offer_id:   link_offer_id,
+            amount:     link_borrow_amount,
+            collateral: link_collateral,
+            txid:       link_txid,
+          }
+        )
+
+        # => 推送
+        push_to_user(Lang.text(lang, :credit_offer_accept_title), message, chat_id)
+      end
+    end
+
+    # => TODO: lang 这3个op本身是否有提醒？
+    private def on_op_credit_deal_repay(transactions, hist, opdata, result, block_num, block_timestamp)
+      _update_credit_deal_object_by_op_credit_deal_repay(opdata, block_timestamp)
+    end
+
+    # => 辅助方法：更新本地监控的 credit deal 对象。借款操作导致更新。
+    private def _update_credit_deal_object_by_op_credit_offer_accept(result, block_timestamp)
       # => extendable_operation_result
       # => [5, {"impacted_accounts" => ["1.2.25721"], "new_objects" => ["1.22.46"]}]
       new_deal_id = result.dig?(1, "new_objects", 0).try(&.as_s?)
@@ -918,8 +960,8 @@ module AppPusher
       end
     end
 
-    # => TODO: lang 这3个op本身是否有提醒？
-    private def on_op_credit_deal_repay(transactions, hist, opdata, result, block_num, block_timestamp)
+    # => 辅助方法：更新本地监控的 credit deal 对象。还款操作导致更新。
+    private def _update_credit_deal_object_by_op_credit_deal_repay(opdata, block_timestamp)
       deal_id = opdata["deal_id"].as_s
 
       # => 更新 or 删除

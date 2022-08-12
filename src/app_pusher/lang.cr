@@ -20,6 +20,9 @@ module AppPusher
       proposal_update_value01: "{approval_user} 批准了 {required} 的提案 {proposal_id}，请注意查看。手续费账号：{fee_paying_account}。\n\n{txid}",
       proposal_update_value02: "{required} 的提案 {proposal_id} 有更新，请注意查看。手续费账号：{fee_paying_account}。\n\n{txid}",
 
+      credit_offer_accept_title: "【P2P抵押借款】",
+      credit_offer_accept_value: "{borrower} 从P2P抵押贷 {offer_id} 借款 {amount}，抵押物 {collateral}。\n\n{txid}",
+
       credit_deal_repay_time_title: "【P2P借款即将逾期】",
       credit_deal_repay_time_value: "{borrower} 的P2P借款 {debt} 还有 {hours} 小时逾期，请注意查看。{deal_id}",
     }
@@ -41,6 +44,9 @@ module AppPusher
       proposal_update_title:   "[UPDATE PROPOSAL]",
       proposal_update_value01: "{approval_user} approved {required}'s proposal {proposal_id}, please check it out. fee account: {fee_paying_account}.\n\n{txid}",
       proposal_update_value02: "{required}'s proposal {proposal_id} has been updated, please check it out. fee account: {fee_paying_account}. \n\n{txid}",
+
+      credit_offer_accept_title: "[BORROW FROM CREDIT OFFER]",
+      credit_offer_accept_value: "{borrower} borrows {amount} from credit offer {offer_id}, collateral {collateral}. \n\n{txid}",
 
       credit_deal_repay_time_title: "[CREDIT DEAL IS ABOUT TO EXPIRE]",
       credit_deal_repay_time_value: "{borrower}'s credit deal {debt} is overdue for {hours} hours, please check it out. {deal_id}",
