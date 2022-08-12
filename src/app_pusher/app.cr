@@ -935,9 +935,51 @@ module AppPusher
       end
     end
 
-    # => TODO: lang 这3个op本身是否有提醒？
     private def on_op_credit_deal_repay(transactions, hist, opdata, result, block_num, block_timestamp)
+      # => 1、更新本地 credit deal 对象
       _update_credit_deal_object_by_op_credit_deal_repay(opdata, block_timestamp)
+
+      # => 2、处理还款通知
+      # => extendable_operation_result
+      # [5,
+      #  {"impacted_accounts" => ["1.2.23363"],
+      #   "updated_objects" => ["1.21.35"],
+      #   "removed_objects" => ["1.22.54"],
+      #   "received" => [{"amount" => 10000000, "asset_id" => "1.3.0"}]}]
+      offer_owner_account_id = result.dig?(1, "impacted_accounts", 0).try(&.as_s?)
+      if offer_owner_account_id.nil?
+        Log.warn { "invalid operation_result: #{result}" }
+        return
+      end
+
+      offer_id = result.dig?(1, "updated_objects", 0).try(&.as_s?)
+      if offer_id.nil?
+        Log.warn { "invalid operation_result: #{result}" }
+        return
+      end
+
+      try_push?(offer_owner_account_id, FeatureKeys::Credit_deal_repay) do |chat_id, lang|
+        # => 生成推送消息
+        link_borrower = fmt_link_account(account_id_to_name(opdata["account"].as_s))
+        link_repay_amount = fmt_asset_amount_item(opdata["repay_amount"])
+        link_offer_id = fmt_link_oid(offer_id)
+        link_credit_fee = fmt_asset_amount_item(opdata["credit_fee"])
+        link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
+
+        # => 格式：{borrower} 归还 {amount} P2P抵押贷 {offer_id} 的借款，手续费 {fee}。\n\n{txid}
+        message = Lang.format(lang, :credit_deal_repay_value,
+          {
+            borrower: link_borrower,
+            amount:   link_repay_amount,
+            offer_id: link_offer_id,
+            fee:      link_credit_fee,
+            txid:     link_txid,
+          }
+        )
+
+        # => 推送
+        push_to_user(Lang.text(lang, :credit_deal_repay_title), message, chat_id)
+      end
     end
 
     # => 辅助方法：更新本地监控的 credit deal 对象。借款操作导致更新。
