@@ -554,6 +554,8 @@ module AppPusher
       case opcode
       when BitShares::Blockchain::Operations::Transfer.value
         on_op_transfer(transactions, hist, opdata, result, block_num, block_timestamp)
+      when BitShares::Blockchain::Operations::Asset_issue.value
+        on_op_asset_issue(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Fill_order.value
         on_op_fill_order(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Proposal_create.value
@@ -677,6 +679,34 @@ module AppPusher
 
         # => 推送
         push_to_user(Lang.text(lang, :transfer_title), message, chat_id)
+      end
+    end
+
+    private def on_op_asset_issue(transactions, hist, opdata, result, block_num, block_timestamp)
+      to_id = opdata["issue_to_account"].as_s
+
+      # => REMARK: 发型资产和转账一样，都属于收款。
+      try_push?(to_id, FeatureKeys::Transfer) do |chat_id, lang|
+        from_id = opdata["issuer"].as_s
+
+        # => 生成推送消息
+        link_amount = fmt_asset_amount_item(opdata["asset_to_issue"])
+        link_from = fmt_link_account(account_id_to_name(from_id))
+        link_to = fmt_link_account(account_id_to_name(to_id))
+        link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
+
+        # => 格式：{from} 发型 {amount} 给 {to}。\n\n{txid}
+        message = Lang.format(lang, :asset_issue_value,
+          {
+            from:   link_from,
+            amount: link_amount,
+            to:     link_to,
+            txid:   link_txid,
+          }
+        )
+
+        # => 推送
+        push_to_user(Lang.text(lang, :asset_issue_title), message, chat_id)
       end
     end
 

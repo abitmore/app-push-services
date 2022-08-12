@@ -7,6 +7,9 @@ module AppPusher
       transfer_title: "【新的收款】",
       transfer_value: "{from} 转账 {amount} 给 {to}。\n\n{txid}",
 
+      asset_issue_title: "【新的收款】",
+      asset_issue_value: "{from} 发行 {amount} 给 {to}。\n\n{txid}",
+
       fill_order_title: "【订单成交】",
       fill_order_value: "{account} 的订单 {order_id} 开始成交，请注意查看。\n\n{txid}",
 
@@ -25,6 +28,9 @@ module AppPusher
     Lang_en = {
       transfer_title: "[TRANSFER]",
       transfer_value: "{from} sent {amount} to {to}.\n\n{txid}",
+
+      asset_issue_title: "[ASSET ISSUE]",
+      asset_issue_value: "{from} issued {amount} to {to}。\n\n{txid}",
 
       fill_order_title: "[FILL ORDER]",
       fill_order_value: "the order {order_id} of {account} has been filled, please check it out. \n\n{txid}",
