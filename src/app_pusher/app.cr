@@ -564,6 +564,8 @@ module AppPusher
         on_op_proposal_update(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Custom.value
         on_op_custom(transactions, hist, opdata, result, block_num, block_timestamp)
+      when BitShares::Blockchain::Operations::Samet_fund_borrow.value
+        on_op_samet_fund_borrow(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Credit_offer_accept.value # => P2P抵押贷 借贷、还款、逾期
         on_op_credit_offer_accept(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Credit_deal_repay.value
@@ -873,6 +875,37 @@ module AppPusher
             {Lang.text(lang, :proposal_update_title), message}
           end
         end
+      end
+    end
+
+    private def on_op_samet_fund_borrow(transactions, hist, opdata, result, block_num, block_timestamp)
+      # => extendable_operation_result
+      # => [5, {"impacted_accounts" => ["1.2.25721"], "new_objects" => ["1.22.46"]}]
+      owner_account_id = result.dig?(1, "impacted_accounts", 0).try(&.as_s?)
+      if owner_account_id.nil?
+        Log.warn { "invalid operation_result: #{result}" }
+        return
+      end
+
+      try_push?(owner_account_id, FeatureKeys::Samet_fund_borrow) do |chat_id, lang|
+        # => 生成推送消息
+        link_borrower = fmt_link_account(account_id_to_name(opdata["borrower"].as_s))
+        link_fund_id = fmt_link_oid(opdata["fund_id"].as_s)
+        link_borrow_amount = fmt_asset_amount_item(opdata["borrow_amount"])
+        link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
+
+        # => 格式：{borrower} 从闪电贷 {fund_id} 借款 {amount}。\n\n{txid}
+        message = Lang.format(lang, :samet_fund_borrow_value,
+          {
+            borrower: link_borrower,
+            fund_id:  link_fund_id,
+            amount:   link_borrow_amount,
+            txid:     link_txid,
+          }
+        )
+
+        # => 推送
+        push_to_user(Lang.text(lang, :samet_fund_borrow_title), message, chat_id)
       end
     end
 

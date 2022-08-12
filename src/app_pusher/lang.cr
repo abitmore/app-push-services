@@ -28,6 +28,9 @@ module AppPusher
 
       credit_deal_repay_time_title: "【P2P借款即将逾期】",
       credit_deal_repay_time_value: "{borrower} 的P2P借款 {debt} 还有 {hours} 小时逾期，请注意查看。{deal_id}",
+
+      samet_fund_borrow_title: "【闪电贷借款】",
+      samet_fund_borrow_value: "{borrower} 从闪电贷 {fund_id} 借款 {amount}。\n\n{txid}",
     }
 
     # 英文
@@ -56,6 +59,9 @@ module AppPusher
 
       credit_deal_repay_time_title: "[CREDIT DEAL IS ABOUT TO EXPIRE]",
       credit_deal_repay_time_value: "{borrower}'s credit deal {debt} is overdue for {hours} hours, please check it out. {deal_id}",
+
+      samet_fund_borrow_title: "[BORROW FROM FLASH LOAN]",
+      samet_fund_borrow_value: "{borrower} borrows {amount} from flash loan {fund_id}. \n\n{txid}",
     }
 
     # 日文 TODO: 目前为空
