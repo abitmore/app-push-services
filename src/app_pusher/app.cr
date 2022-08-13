@@ -556,6 +556,8 @@ module AppPusher
         on_op_transfer(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Asset_issue.value
         on_op_asset_issue(transactions, hist, opdata, result, block_num, block_timestamp)
+      when BitShares::Blockchain::Operations::Override_transfer.value
+        on_op_override_transfer(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Fill_order.value
         on_op_fill_order(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Proposal_create.value
@@ -711,6 +713,33 @@ module AppPusher
 
         # => 推送
         push_to_user(Lang.text(lang, :asset_issue_title), message, chat_id)
+      end
+    end
+
+    private def on_op_override_transfer(transactions, hist, opdata, result, block_num, block_timestamp)
+      from_id = opdata["from"].as_s
+
+      try_push?(from_id, FeatureKeys::Override_transfer) do |chat_id, lang|
+        issuer_id = opdata["issuer"].as_s
+
+        # => 生成推送消息
+        link_amount = fmt_asset_amount_item(opdata["amount"])
+        link_from = fmt_link_account(account_id_to_name(from_id))
+        link_issuer = fmt_link_account(account_id_to_name(issuer_id))
+        link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
+
+        # => 格式：{issuer} 从您的账户 {from} 强制回收 {amount}，请注意查看。\n\n{txid}
+        message = Lang.format(lang, :override_transfer_value,
+          {
+            issuer: link_issuer,
+            from:   link_from,
+            amount: link_amount,
+            txid:   link_txid,
+          }
+        )
+
+        # => 推送
+        push_to_user(Lang.text(lang, :override_transfer_title), message, chat_id)
       end
     end
 

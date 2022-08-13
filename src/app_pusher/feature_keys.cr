@@ -2,6 +2,7 @@ module AppPusher
   # 支持的提醒功能 REMARK: 需要和 common.settings.ver.x 配置里的 reminder_data 特性名字一致。
   module FeatureKeys
     Transfer                  = "transfer"                  # => 新的收款
+    Override_transfer         = "override_transfer"         # => 强制回收
     Fill_order                = "fill_order"                # => 订单成交 maker
     Credit_offer_accept       = "credit_offer_accept"       # => P2P抵押贷用户借款
     Credit_deal_repay         = "credit_deal_repay"         # => P2P抵押贷用户还款

@@ -10,6 +10,9 @@ module AppPusher
       asset_issue_title: "【新的收款】",
       asset_issue_value: "{from} 发行 {amount} 给 {to}。\n\n{txid}",
 
+      override_transfer_title: "【强制转账】",
+      override_transfer_value: "{issuer} 从您的账户 {from} 强制回收 {amount}，请注意查看。\n\n{txid}",
+
       fill_order_title: "【订单成交】",
       fill_order_value: "{account} 的订单 {order_id} 开始成交，请注意查看。\n\n{txid}",
 
@@ -43,6 +46,9 @@ module AppPusher
 
       asset_issue_title: "[ASSET ISSUE]",
       asset_issue_value: "{from} issued {amount} to {to}。\n\n{txid}",
+
+      override_transfer_title: "[OVERRIDE TRANSFER]",
+      override_transfer_value: "{issuer} override transfer {amount} from your account {from}, please check it out. \n\n{txid}",
 
       fill_order_title: "[FILL ORDER]",
       fill_order_value: "the order {order_id} of {account} has been filled, please check it out. \n\n{txid}",
