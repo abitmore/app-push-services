@@ -20,6 +20,9 @@ module AppPusher
       proposal_update_value01: "{approval_user} 批准了 {required} 的提案 {proposal_id}，请注意查看。手续费账号：{fee_paying_account}。\n\n{txid}",
       proposal_update_value02: "{required} 的提案 {proposal_id} 有更新，请注意查看。手续费账号：{fee_paying_account}。\n\n{txid}",
 
+      withdraw_permission_claim_title: "【授权提款】",
+      withdraw_permission_claim_value: "{to} 从您的账户 {from} 自动扣费 {amount}，请注意查看。{withdraw_permission_id} \n\n{txid}",
+
       credit_offer_accept_title: "【P2P抵押借款】",
       credit_offer_accept_value: "{borrower} 从P2P抵押贷 {offer_id} 借款 {amount}，抵押物 {collateral}。\n\n{txid}",
 
@@ -50,6 +53,9 @@ module AppPusher
       proposal_update_title:   "[UPDATE PROPOSAL]",
       proposal_update_value01: "{approval_user} approved {required}'s proposal {proposal_id}, please check it out. fee account: {fee_paying_account}.\n\n{txid}",
       proposal_update_value02: "{required}'s proposal {proposal_id} has been updated, please check it out. fee account: {fee_paying_account}. \n\n{txid}",
+
+      withdraw_permission_claim_title: "[WITHDRAW PERMISSION]",
+      withdraw_permission_claim_value: "{to} debit {amount} from your account {from}, please check it out. {withdraw_permission_id} \n\n{txid}",
 
       credit_offer_accept_title: "[BORROW FROM CREDIT OFFER]",
       credit_offer_accept_value: "{borrower} borrows {amount} from credit offer {offer_id}, collateral {collateral}. \n\n{txid}",

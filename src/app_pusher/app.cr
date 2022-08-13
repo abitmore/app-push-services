@@ -562,6 +562,8 @@ module AppPusher
         on_op_proposal_create(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Proposal_update.value
         on_op_proposal_update(transactions, hist, opdata, result, block_num, block_timestamp)
+      when BitShares::Blockchain::Operations::Withdraw_permission_claim.value
+        on_op_withdraw_permission_claim(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Custom.value
         on_op_custom(transactions, hist, opdata, result, block_num, block_timestamp)
       when BitShares::Blockchain::Operations::Samet_fund_borrow.value
@@ -875,6 +877,35 @@ module AppPusher
             {Lang.text(lang, :proposal_update_title), message}
           end
         end
+      end
+    end
+
+    private def on_op_withdraw_permission_claim(transactions, hist, opdata, result, block_num, block_timestamp)
+      from_id = opdata["withdraw_from_account"].as_s
+
+      try_push?(from_id, FeatureKeys::Withdraw_permission_claim) do |chat_id, lang|
+        to_id = opdata["withdraw_to_account"].as_s
+
+        # => 生成推送消息
+        link_amount = fmt_asset_amount_item(opdata["amount_to_withdraw"])
+        link_from = fmt_link_account(account_id_to_name(from_id))
+        link_to = fmt_link_account(account_id_to_name(to_id))
+        link_withdraw_permission_id = fmt_link_oid(opdata["withdraw_permission"].as_s)
+        link_txid = fmt_link_txid(calc_transaction_id(transactions, hist["trx_in_block"].as_i.to_u16))
+
+        # => 格式：{to} 从您的账户 {from} 自动扣费 {amount}，请注意查看。{withdraw_permission_id} \n\n{txid}
+        message = Lang.format(lang, :withdraw_permission_claim_value,
+          {
+            to:                     link_to,
+            from:                   link_from,
+            amount:                 link_amount,
+            withdraw_permission_id: link_withdraw_permission_id,
+            txid:                   link_txid,
+          }
+        )
+
+        # => 推送
+        push_to_user(Lang.text(lang, :withdraw_permission_claim_title), message, chat_id)
       end
     end
 
