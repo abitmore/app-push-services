@@ -2,9 +2,9 @@ version: 2.0
 shards:
   bitshares-crystal:
     git: https://github.com/syalon/bitshares-crystal.git
-    version: 0.1.0+git.commit.7b74491bebef5fe3aa6545ffa788b7e3f9f0fe1d
+    version: 0.1.0+git.commit.1dd18499102cdc1a55c546e151e105b5f4c14777
 
   crystal-secp256k1-zkp:
     git: https://github.com/syalon/crystal-secp256k1-zkp.git
-    version: 0.1.0+git.commit.ff58493d5c5ac8dd3cb351c5f1bbdacba278c526
+    version: 0.1.0+git.commit.ef1d8f54dcadc6fa4f84141b13bc69effa5ca69a
 
