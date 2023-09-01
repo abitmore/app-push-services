@@ -1,18 +1,29 @@
 # app-push-services
 
-TODO: Write a description here
+BitShares Mobile App push service, using third-party software such as telegram.
 
-## Installation
+## Static Linking
 
-TODO: Write installation instructions here
+#### Step 1. Clone repository.
+```
+git clone https://github.com/bitshares/app-push-services.git
+```
 
-## Usage
+#### Step 2. Run compile docker and install dependencies tools.
+```
+docker run -it --rm  -v $(pwd):/workspace -w /workspace crystallang/crystal:1.3.2-alpine
+/workspace # apk add autoconf cmake make automake libtool g++ # Install dependencies tools
+```
 
-TODO:
+#### Step 3. Build.
+```
+shards build --release --static
+```
 
-## Development
-
-TODO: Write development instructions here
+## Run
+```
+./app_pusher --token=YOUR_TELEGRAM_BOT_TOEKN
+```
 
 ## Contributing
 
