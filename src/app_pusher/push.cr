@@ -146,6 +146,8 @@ module AppPusher
     rescue e : Exception
       Log.error(exception: e) { "telegram api error" }
       return nil
+    ensure
+      client.try &.close
     end
   end
 end
